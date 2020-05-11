@@ -1,4 +1,4 @@
-use baffa::{WriteBuf, StaticBuffer};
+use baffa::{WriteBuf, WriteBufExt, StaticBuffer};
 use core::{mem, slice};
 
 #[test]
@@ -25,7 +25,7 @@ fn test_stack_buffer() {
     assert_eq!(buffer.as_slice(), bytes);
 
     let mut buffer = StaticBuffer::<u8>::new();
-    assert_eq!(buffer.put_value(&241u8), 1);
+    assert_eq!(buffer.write_value(&241u8), 1);
     assert_eq!(buffer.as_slice(), [241]);
 
 }

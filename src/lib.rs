@@ -6,14 +6,77 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-use core::{ptr, cmp};
+use type_traits::size_of;
+
+use core::{ptr, mem, cmp};
 
 pub mod stack;
 
 ///Alias to static buffer.
 pub type StaticBuffer<T> = stack::Buffer<T>;
 
-///Describes mutable buffer
+///Describes read-able buffer
+pub trait ReadBuf: Sized {
+    ///Returns number of bytes left
+    fn available(&mut self) -> usize;
+    ///Moves cursor, considering bytes as consumed.
+    unsafe fn consume(&mut self, step: usize);
+    ///Returns pointer to the first element, that can be read
+    fn cursor(&self) -> *const u8;
+
+    #[inline]
+    ///Low level read function, that consumes available bytes up to `size`.
+    ///
+    ///Default implementation performs `memcpy`, consuming `size` bytes.
+    ///
+    ///This function is always used in safe manner by other default implementations:
+    ///
+    ///- `size` is always `min(buffer_size, available)`
+    ///- `ptr` is always non-null.
+    unsafe fn read(&mut self, ptr: *mut u8, size: usize) {
+        debug_assert!(!ptr.is_null());
+
+        ptr::copy_nonoverlapping(self.cursor(), ptr, size);
+        self.consume(size);
+    }
+
+    #[inline]
+    ///Reads available bytes into slice
+    fn read_slice(&mut self, bytes: &mut [u8]) -> usize {
+        let read_len = cmp::min(bytes.len(), self.available());
+
+        if read_len > 0 {
+            unsafe {
+                self.read(bytes.as_mut_ptr(), bytes.len())
+            }
+        }
+
+        read_len
+    }
+}
+
+///Extension trait to provide extra functionality
+pub trait ReadBufExt: ReadBuf {
+    #[inline]
+    ///Reads value into storage.
+    ///
+    ///If not enough bytes, does nothing, returning 0
+    fn read_value<T: Copy + Sized>(&mut self, val: &mut mem::MaybeUninit<T>) -> usize {
+        let size = size_of!(*val);
+
+        if size != 0 && self.available() >= size {
+            unsafe {
+                self.read(val.as_mut_ptr() as *mut u8, size);
+            }
+        }
+
+        size
+    }
+}
+
+impl<T: ReadBuf> ReadBufExt for T {}
+
+///Describes write-able buffer
 pub trait WriteBuf: Sized {
     ///Returns number of bytes left
     fn remaining(&mut self) -> usize;
@@ -23,14 +86,22 @@ pub trait WriteBuf: Sized {
     fn cursor(&mut self) -> *mut u8;
 
     #[inline]
-    ///Low level write method, which uses pointer with size.
+    ///Low level write method, which copies data from pointer up to `size`.
     ///
-    ///This is unsafe because it can assume that `ptr` and `size` are valid.
+    ///Default implementation performs `memcpy`, advancing cursor by `size`.
+    ///
+    ///This function is always used in safe manner by other default implementations:
+    ///
+    ///- `size` is always `min(buffer_size, available)`
+    ///- `ptr` is always non-null.
     unsafe fn write(&mut self, ptr: *const u8, size: usize) {
+        debug_assert!(!ptr.is_null());
+
         ptr::copy_nonoverlapping(ptr, self.cursor(), size);
         self.advance(size);
     }
 
+    #[inline]
     ///Writes supplied slice into the buffer, returning number of written bytes.
     ///
     ///Allows partial writes.
@@ -46,3 +117,24 @@ pub trait WriteBuf: Sized {
         write_len
     }
 }
+
+///Extension trait to provide extra functionality
+pub trait WriteBufExt: WriteBuf {
+    #[inline]
+    ///Writes supplied value by performing bit copy, advancing length and returning number of bytes written.
+    ///
+    ///If value cannot fit, does nothing
+    fn write_value<T: Copy + Sized>(&mut self, val: &T) -> usize {
+        let size = size_of!(*val);
+
+        if size != 0 && self.remaining() >= size {
+            unsafe {
+                self.write(val as *const _ as *const u8, size);
+            }
+        }
+
+        size
+    }
+}
+
+impl<T: WriteBuf> WriteBufExt for T {}
