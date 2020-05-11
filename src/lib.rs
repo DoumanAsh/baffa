@@ -2,7 +2,6 @@
 
 #![warn(missing_docs)]
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::style))]
-#![no_std]
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -23,6 +22,15 @@ pub trait WriteBuf: Sized {
     ///Returns pointer to the first element, that is yet to be written.
     fn cursor(&mut self) -> *mut u8;
 
+    #[inline]
+    ///Low level write method, which uses pointer with size.
+    ///
+    ///This is unsafe because it can assume that `ptr` and `size` are valid.
+    unsafe fn write(&mut self, ptr: *const u8, size: usize) {
+        ptr::copy_nonoverlapping(ptr, self.cursor(), size);
+        self.advance(size);
+    }
+
     ///Writes supplied slice into the buffer, returning number of written bytes.
     ///
     ///Allows partial writes.
@@ -31,8 +39,7 @@ pub trait WriteBuf: Sized {
 
         if write_len > 0 {
             unsafe {
-                ptr::copy_nonoverlapping(bytes.as_ptr(), self.cursor(), write_len);
-                self.advance(write_len);
+                self.write(bytes.as_ptr(), write_len);
             }
         }
 

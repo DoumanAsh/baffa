@@ -15,5 +15,8 @@ include = [
     "README.md"
 ]
 
+[dependencies]
+type_traits = "0.2"
+
 [features]
 std = [] #Enable std trait implementation like io::Write

@@ -23,4 +23,9 @@ fn test_stack_buffer() {
         slice::from_raw_parts(&num as *const _ as *const u8, mem::size_of::<u32>())
     };
     assert_eq!(buffer.as_slice(), bytes);
+
+    let mut buffer = StaticBuffer::<u8>::new();
+    assert_eq!(buffer.put_value(&241u8), 1);
+    assert_eq!(buffer.as_slice(), [241]);
+
 }

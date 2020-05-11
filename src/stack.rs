@@ -1,5 +1,7 @@
 //! Stack based buffer
 
+use type_traits::size_of;
+
 use core::{fmt, slice, mem};
 use crate::WriteBuf;
 
@@ -31,6 +33,12 @@ impl<S: Sized> Buffer<S> {
             inner,
             cursor,
         }
+    }
+
+    #[inline]
+    ///Splits buffer into parts.
+    pub const unsafe fn into_raw_parts(self) -> (mem::MaybeUninit<S>, usize) {
+        (self.inner, self.cursor)
     }
 
     #[inline]
@@ -84,6 +92,24 @@ impl<S: Sized> Buffer<S> {
     ///Returns buffer overall capacity.
     pub const fn capacity() -> usize {
         mem::size_of::<S>()
+    }
+
+    #[inline]
+    ///Writes supplied value by performing bit copy, advancing length and returning number of bytes written.
+    ///
+    ///If value cannot fit, does nothing
+    pub fn put_value<T: Copy + Sized>(&mut self, val: &T) -> usize {
+        let size = size_of!(*val);
+
+        if size == 0 || self.remaining() < size {
+            return 0;
+        }
+
+        unsafe {
+            self.write(val as *const _ as *const u8, size);
+        }
+
+        size
     }
 }
 
