@@ -18,7 +18,7 @@ pub type StaticBuffer<T> = stack::Buffer<T>;
 ///Describes read-able buffer
 pub trait ReadBuf: Sized {
     ///Returns number of bytes left
-    fn available(&mut self) -> usize;
+    fn available(&self) -> usize;
     ///Moves cursor, considering bytes as consumed.
     unsafe fn consume(&mut self, step: usize);
     ///Returns pointer to the first element, that can be read
@@ -68,9 +68,10 @@ pub trait ReadBufExt: ReadBuf {
             unsafe {
                 self.read(val.as_mut_ptr() as *mut u8, size);
             }
+            size
+        } else {
+            0
         }
-
-        size
     }
 }
 
@@ -79,7 +80,7 @@ impl<T: ReadBuf> ReadBufExt for T {}
 ///Describes write-able buffer
 pub trait WriteBuf: Sized {
     ///Returns number of bytes left
-    fn remaining(&mut self) -> usize;
+    fn remaining(&self) -> usize;
     ///Moves cursor, considering bytes written.
     unsafe fn advance(&mut self, step: usize);
     ///Returns pointer to the first element, that is yet to be written.

@@ -1,7 +1,7 @@
 //! Stack based buffer
 
-use core::{fmt, slice, mem};
-use crate::WriteBuf;
+use core::{cmp, fmt, slice, mem, ptr};
+use crate::{ReadBuf, WriteBuf};
 
 ///Static buffer to raw bytes
 ///
@@ -23,10 +23,18 @@ impl<S: Sized> Buffer<S> {
     }
 
     #[inline]
-    ///Creates new instance from raw parts.
+    ///Transforms buffer into ring buffer.
+    pub const fn into_circular(self) -> Ring<S> {
+        unsafe {
+            Ring::from_parts(self, 0)
+        }
+    }
+
+    #[inline]
+    ///Creates new instance from parts.
     ///
     ///`cursor` - elements before it must be written before.
-    pub const unsafe fn from_raw_parts(inner: mem::MaybeUninit<S>, cursor: usize) -> Self {
+    pub const unsafe fn from_parts(inner: mem::MaybeUninit<S>, cursor: usize) -> Self {
         Self {
             inner,
             cursor,
@@ -35,7 +43,7 @@ impl<S: Sized> Buffer<S> {
 
     #[inline]
     ///Splits buffer into parts.
-    pub const unsafe fn into_raw_parts(self) -> (mem::MaybeUninit<S>, usize) {
+    pub const fn into_parts(self) -> (mem::MaybeUninit<S>, usize) {
         (self.inner, self.cursor)
     }
 
@@ -109,8 +117,8 @@ impl<S: Sized> fmt::Debug for Buffer<S> {
 
 impl<S: Sized> WriteBuf for Buffer<S> {
     #[inline(always)]
-    fn remaining(&mut self) -> usize {
-        Self::remaining(self as &Self)
+    fn remaining(&self) -> usize {
+        Self::remaining(self)
     }
 
     #[inline(always)]
@@ -134,5 +142,142 @@ impl<S: Sized> std::io::Write for Buffer<S> {
     #[inline(always)]
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+///Circular version of `Buffer`
+///
+///Because `Buffer` becomes circular, it always has remaining bytes to write.
+///But care must be taken because without consuming already written bytes, it is easy to over-write
+pub struct Ring<T: Sized> {
+    buffer: Buffer<T>,
+    read: usize
+}
+
+impl<S: Sized> Ring<S> {
+    #[inline]
+    ///Creates new instance
+    pub const fn new() -> Self {
+        unsafe {
+            Self::from_parts(Buffer::new(), 0)
+        }
+    }
+
+    #[inline]
+    ///Creates new instance from parts
+    pub const unsafe fn from_parts(buffer: Buffer<S>, read: usize) -> Self {
+        Self {
+            buffer,
+            read
+        }
+    }
+
+    #[inline]
+    ///Creates new instance from parts
+    pub const fn into_parts(self) -> (Buffer<S>, usize) {
+        (self.buffer, self.read)
+    }
+
+    #[inline]
+    const fn mask_idx(idx: usize) -> usize {
+        idx & (Buffer::<S>::capacity() - 1)
+    }
+
+    ///Returns number of available elements
+    pub const fn size(&self) -> usize {
+        self.buffer.cursor - self.read
+    }
+
+    ///Returns whether buffer is empty.
+    pub const fn is_empty(&self) -> bool {
+        self.buffer.cursor == self.read
+    }
+
+    ///Returns whether buffer is empty.
+    pub const fn is_full(&self) -> bool {
+        Buffer::<S>::capacity() == self.size()
+    }
+}
+
+impl<S: Sized> ReadBuf for Ring<S> {
+    #[inline(always)]
+    fn available(&self) -> usize {
+        self.size()
+    }
+
+    #[inline]
+    unsafe fn consume(&mut self, step: usize) {
+        self.read = self.read.wrapping_add(step);
+    }
+
+    #[inline(always)]
+    fn cursor(&self) -> *const u8 {
+        unsafe {
+            self.buffer.as_ptr().offset(Self::mask_idx(self.read) as isize)
+        }
+    }
+
+    unsafe fn read(&mut self, ptr: *mut u8, mut size: usize) {
+        debug_assert!(!ptr.is_null());
+        debug_assert!((Buffer::<S>::capacity() & (Buffer::<S>::capacity() - 1)) == 0, "Capacity is not power of 2");
+        let idx = Self::mask_idx(self.read);
+        let read_span = cmp::min(Buffer::<S>::capacity() - idx, size);
+
+        ptr::copy_nonoverlapping(self.buffer.as_ptr().offset(idx as isize), ptr, read_span);
+        self.consume(read_span);
+        size -= read_span;
+
+        if size > 0 {
+            let avail_size = cmp::min(size, self.available());
+            if avail_size > 0 {
+                ptr::copy_nonoverlapping(self.buffer.as_ptr(), ptr.offset(read_span as isize), avail_size);
+                self.consume(avail_size);
+            }
+        }
+    }
+}
+
+impl<S: Sized> WriteBuf for Ring<S> {
+    #[inline(always)]
+    fn remaining(&self) -> usize {
+        Buffer::<S>::capacity()
+    }
+
+    #[inline(always)]
+    unsafe fn advance(&mut self, step: usize) {
+        self.buffer.cursor = self.buffer.cursor.wrapping_add(step);
+
+        let read_span = self.buffer.cursor - self.read;
+        if read_span > Buffer::<S>::capacity() {
+            //consume over-written bytes
+            self.consume(read_span - Buffer::<S>::capacity());
+        }
+    }
+
+    #[inline(always)]
+    fn cursor(&mut self) -> *mut u8 {
+        unsafe {
+            self.buffer.as_ptr().offset(Self::mask_idx(self.buffer.cursor) as isize) as *mut u8
+        }
+    }
+
+    unsafe fn write(&mut self, ptr: *const u8, mut size: usize) {
+        debug_assert!(!ptr.is_null());
+        debug_assert!((Buffer::<S>::capacity() & (Buffer::<S>::capacity() - 1)) == 0, "Capacity is not power of 2");
+
+        let mut write_span = cmp::min(Buffer::<S>::capacity() - Self::mask_idx(self.buffer.cursor), size);
+
+        ptr::copy_nonoverlapping(ptr, self.cursor(), write_span);
+        size -= write_span;
+
+        while size > 0 {
+            let avail_size = cmp::min(size, Buffer::<S>::capacity());
+
+            ptr::copy_nonoverlapping(ptr.offset(write_span as isize), self.buffer.as_ptr() as *mut u8, avail_size);
+            size -= avail_size;
+            write_span += avail_size;
+        }
+
+        self.advance(write_span);
     }
 }
