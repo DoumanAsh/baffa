@@ -1,6 +1,6 @@
 //! Stack based buffer
 
-use core::{cmp, fmt, slice, mem, ptr};
+use core::{cmp, fmt, slice, mem, ptr, ops};
 use crate::{ReadBuf, WriteBuf};
 
 ///Static buffer to raw bytes
@@ -99,6 +99,34 @@ impl<S: Sized> Buffer<S> {
     pub const fn capacity() -> usize {
         mem::size_of::<S>()
     }
+
+    #[inline]
+    ///Returns number of bytes written.
+    pub const fn len(&self) -> usize {
+        self.cursor
+    }
+}
+
+impl<S: Sized> ops::Index<usize> for Buffer<S> {
+    type Output = u8;
+
+    #[inline(always)]
+    fn index(&self, index: usize) -> &Self::Output {
+        debug_assert!(index < self.len());
+        unsafe {
+            &*self.as_ptr().offset(index as isize)
+        }
+    }
+}
+
+impl<S: Sized> ops::IndexMut<usize> for Buffer<S> {
+    #[inline(always)]
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        debug_assert!(index < self.len());
+        unsafe {
+            &mut *(self.as_ptr().offset(index as isize) as *mut _)
+        }
+    }
 }
 
 impl<S: Sized> AsRef<[u8]> for Buffer<S> {
@@ -126,10 +154,13 @@ impl<S: Sized> WriteBuf for Buffer<S> {
         self.set_len(self.cursor + step);
     }
 
-    #[inline(always)]
-    fn cursor(&mut self) -> *mut u8 {
-        self.as_ptr() as *mut u8
+    unsafe fn write(&mut self, ptr: *const u8, size: usize) {
+        debug_assert!(!ptr.is_null());
+
+        ptr::copy_nonoverlapping(ptr, self.as_ptr().offset(self.cursor as isize) as *mut u8, size);
+        self.advance(size);
     }
+
 }
 
 #[cfg(feature = "std")]
@@ -184,7 +215,7 @@ impl<S: Sized> Ring<S> {
     }
 
     ///Returns number of available elements
-    pub const fn size(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.buffer.cursor - self.read
     }
 
@@ -193,28 +224,45 @@ impl<S: Sized> Ring<S> {
         self.buffer.cursor == self.read
     }
 
-    ///Returns whether buffer is empty.
+    ///Returns whether buffer is full.
     pub const fn is_full(&self) -> bool {
-        Buffer::<S>::capacity() == self.size()
+        Buffer::<S>::capacity() == self.len()
+    }
+}
+
+impl<S: Sized> ops::Index<usize> for Ring<S> {
+    type Output = u8;
+
+    #[inline(always)]
+    fn index(&self, mut index: usize) -> &Self::Output {
+        debug_assert!(index < self.len());
+        index = Self::mask_idx(self.read.wrapping_add(index));
+        unsafe {
+            &*self.buffer.as_ptr().offset(index as isize)
+        }
+    }
+}
+
+impl<S: Sized> ops::IndexMut<usize> for Ring<S> {
+    #[inline(always)]
+    fn index_mut(&mut self, mut index: usize) -> &mut Self::Output {
+        debug_assert!(index < self.len());
+        index = Self::mask_idx(self.read.wrapping_add(index));
+        unsafe {
+            &mut *(self.buffer.as_ptr().offset(index as isize) as *mut _)
+        }
     }
 }
 
 impl<S: Sized> ReadBuf for Ring<S> {
     #[inline(always)]
     fn available(&self) -> usize {
-        self.size()
+        self.len()
     }
 
     #[inline]
     unsafe fn consume(&mut self, step: usize) {
         self.read = self.read.wrapping_add(step);
-    }
-
-    #[inline(always)]
-    fn cursor(&self) -> *const u8 {
-        unsafe {
-            self.buffer.as_ptr().offset(Self::mask_idx(self.read) as isize)
-        }
     }
 
     unsafe fn read(&mut self, ptr: *mut u8, mut size: usize) {
@@ -254,20 +302,14 @@ impl<S: Sized> WriteBuf for Ring<S> {
         }
     }
 
-    #[inline(always)]
-    fn cursor(&mut self) -> *mut u8 {
-        unsafe {
-            self.buffer.as_ptr().offset(Self::mask_idx(self.buffer.cursor) as isize) as *mut u8
-        }
-    }
-
     unsafe fn write(&mut self, ptr: *const u8, mut size: usize) {
         debug_assert!(!ptr.is_null());
         debug_assert!((Buffer::<S>::capacity() & (Buffer::<S>::capacity() - 1)) == 0, "Capacity is not power of 2");
 
-        let mut write_span = cmp::min(Buffer::<S>::capacity() - Self::mask_idx(self.buffer.cursor), size);
+        let cursor = Self::mask_idx(self.buffer.cursor);
+        let mut write_span = cmp::min(Buffer::<S>::capacity() - cursor, size);
 
-        ptr::copy_nonoverlapping(ptr, self.cursor(), write_span);
+        ptr::copy_nonoverlapping(ptr, self.buffer.as_ptr().offset(cursor as isize) as *mut u8, write_span);
         size -= write_span;
 
         while size > 0 {

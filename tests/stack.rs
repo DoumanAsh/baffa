@@ -14,6 +14,21 @@ fn test_stack_buffer() {
     assert_eq!(buffer.as_slice(), bytes);
     assert_eq!(buffer.write_slice(bytes), 0);
     assert_eq!(buffer.as_slice(), bytes);
+    buffer.truncate(0);
+    assert_eq!(buffer.write_value(&u32::max_value()), 4);
+    assert_eq!(buffer.len(), 4);
+    for idx in 0..4 {
+        assert_eq!(buffer[idx], 255);
+    }
+    assert_eq!(buffer.write_value(&u32::max_value()), 4);
+    assert_eq!(buffer.len(), 8);
+    for idx in 0..8 {
+        assert_eq!(buffer[idx], 255);
+    }
+    assert_eq!(buffer.as_slice(), bytes);
+    assert_eq!(buffer.write_value(&u32::max_value()), 0);
+    assert_eq!(buffer.as_slice(), bytes);
+    assert_eq!(buffer.as_slice().len(), 8);
 
     let mut buffer = StaticBuffer::<u32>::new();
     assert_eq!(buffer.write_slice(bytes), 4);
@@ -42,10 +57,19 @@ fn test_ring_buffer() {
     assert_eq!(buffer.available(), 0);
     assert_eq!(buffer.write_slice(bytes), 8);
     assert_eq!(buffer.available(), 8);
+    for idx in 0..8 {
+        assert_eq!(buffer[idx], 255);
+    }
     assert_eq!(buffer.write_slice(bytes), 8);
     assert_eq!(buffer.available(), 8);
     assert_eq!(buffer.write_value(&0u32), 4);
     assert_eq!(buffer.available(), 8);
+    for idx in 0..4 {
+        assert_eq!(buffer[idx], 255);
+    }
+    for idx in 4..8 {
+        assert_eq!(buffer[idx], 0);
+    }
 
     let mut res = mem::MaybeUninit::<u32>::new(0);
     assert_eq!(buffer.read_value(&mut res), 4);
