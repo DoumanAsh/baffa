@@ -9,12 +9,31 @@ extern crate std;
 
 use type_traits::size_of;
 
-use core::{mem, cmp};
+use core::{mem, cmp, ops};
 
 pub mod stack;
+pub mod iter;
 
 ///Alias to static buffer.
 pub type StaticBuffer<T> = stack::Buffer<T>;
+
+///Common buffer.
+pub trait Buf: ops::IndexMut<usize, Output=u8> + Sized {
+    ///Returns length of the buffer.
+    fn len(&self) -> usize;
+
+    #[inline]
+    ///Returns iterator over elements inside the buffer.
+    fn iter(&self) -> iter::Iter<'_, Self> {
+        iter::Iter::new(self, 0, self.len())
+    }
+
+    #[inline]
+    ///Returns mutable iterator over elements inside the buffer.
+    fn iter_mut(&mut self) -> iter::IterMut<'_, Self> {
+        iter::IterMut::new(self, 0, self.len())
+    }
+}
 
 ///Describes read-able buffer
 pub trait ReadBuf {
