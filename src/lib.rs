@@ -28,6 +28,8 @@ pub trait Buf: ops::IndexMut<usize, Output=u8> + Sized {
         iter::Iter::new(self, 0, self.len())
     }
 
+    //TODO: separate unsafe trait? technically need to beware of IndexMut::index_mut returning the
+    //same address
     #[inline]
     ///Returns mutable iterator over elements inside the buffer.
     fn iter_mut(&mut self) -> iter::IterMut<'_, Self> {
