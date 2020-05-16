@@ -1,7 +1,7 @@
 //! Stack based buffer
 
 use core::{cmp, fmt, slice, mem, ptr, ops};
-use crate::{ReadBuf, WriteBuf};
+use crate::{Buf, ReadBuf, WriteBuf};
 
 ///Static buffer to raw bytes
 ///
@@ -143,6 +143,18 @@ impl<S: Sized> fmt::Debug for Buffer<S> {
     }
 }
 
+impl<S: Sized> Buf for Buffer<S> {
+    #[inline(always)]
+    fn capacity(&self) -> usize {
+        Self::capacity()
+    }
+
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.cursor
+    }
+}
+
 impl<S: Sized> WriteBuf for Buffer<S> {
     #[inline(always)]
     fn remaining(&self) -> usize {
@@ -254,10 +266,22 @@ impl<S: Sized> ops::IndexMut<usize> for Ring<S> {
     }
 }
 
+impl<S: Sized> Buf for Ring<S> {
+    #[inline(always)]
+    fn capacity(&self) -> usize {
+        Buffer::<S>::capacity()
+    }
+
+    #[inline(always)]
+    fn len(&self) -> usize {
+        Self::len(self)
+    }
+}
+
 impl<S: Sized> ReadBuf for Ring<S> {
     #[inline(always)]
     fn available(&self) -> usize {
-        self.len()
+        Self::len(self)
     }
 
     #[inline]

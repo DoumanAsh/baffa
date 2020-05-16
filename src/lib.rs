@@ -7,8 +7,6 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-use type_traits::size_of;
-
 use core::{mem, cmp, ops};
 
 pub mod stack;
@@ -16,10 +14,15 @@ pub mod iter;
 
 ///Alias to static buffer.
 pub type StaticBuffer<T> = stack::Buffer<T>;
+///Alias to circular buffer.
+pub type RingBuffer<T> = stack::Ring<T>;
 
 ///Common buffer.
 pub trait Buf: ops::IndexMut<usize, Output=u8> + Sized {
-    ///Returns length of the buffer.
+    ///Returns size of the underlying memory in the buffer.
+    fn capacity(&self) -> usize;
+
+    ///Returns number of elements inside the buffer.
     fn len(&self) -> usize;
 
     #[inline]
@@ -28,7 +31,7 @@ pub trait Buf: ops::IndexMut<usize, Output=u8> + Sized {
         iter::Iter::new(self, 0, self.len())
     }
 
-    //TODO: separate unsafe trait? technically need to beware of IndexMut::index_mut returning the
+    //TODO: separate unsafe trait? Technically need to beware of IndexMut::index_mut returning the
     //same address
     #[inline]
     ///Returns mutable iterator over elements inside the buffer.
@@ -37,10 +40,29 @@ pub trait Buf: ops::IndexMut<usize, Output=u8> + Sized {
     }
 }
 
+///Describes buffer that allows to extend capacity
+pub trait DynBuf {
+    ///Reserves additional space, enough to at least fit `size`.
+    ///
+    ///Generally should be noop if there is enough capacity.
+    fn reserve(&mut self, size: usize);
+    ///Removes `size` number of bytes from underlying memory.
+    ///
+    ///If `size` is bigger than `capacity` should behave as if `size` is equal (i.e. clear whole
+    ///memory).
+    fn shrink(&mut self, size: usize);
+}
+
 ///Describes read-able buffer
-pub trait ReadBuf {
+pub trait ReadBuf: Buf {
+    #[inline(always)]
     ///Returns number of bytes left
-    fn available(&self) -> usize;
+    ///
+    ///Returns buffer's `length` by default
+    fn available(&self) -> usize {
+        Buf::len(self)
+    }
+
     ///Moves cursor, considering bytes as consumed.
     unsafe fn consume(&mut self, step: usize);
 
@@ -74,7 +96,7 @@ pub trait ReadBufExt: ReadBuf {
     ///
     ///If not enough bytes, does nothing, returning 0
     fn read_value<T: Copy + Sized>(&mut self, val: &mut mem::MaybeUninit<T>) -> usize {
-        let size = size_of!(*val);
+        let size = mem::size_of::<T>();
 
         if size != 0 && self.available() >= size {
             unsafe {
@@ -90,9 +112,15 @@ pub trait ReadBufExt: ReadBuf {
 impl<T: ReadBuf> ReadBufExt for T {}
 
 ///Describes write-able buffer
-pub trait WriteBuf {
+pub trait WriteBuf: Buf {
+    #[inline(always)]
     ///Returns number of bytes left
-    fn remaining(&self) -> usize;
+    ///
+    ///Default implementation returns `capacity - len`
+    fn remaining(&self) -> usize {
+        self.capacity() - self.len()
+    }
+
     ///Moves cursor, considering bytes written.
     unsafe fn advance(&mut self, step: usize);
 
@@ -128,7 +156,7 @@ pub trait WriteBufExt: WriteBuf {
     ///
     ///If value cannot fit, does nothing
     fn write_value<T: Copy + Sized>(&mut self, val: &T) -> usize {
-        let size = size_of!(*val);
+        let size = mem::size_of::<T>();
 
         if size != 0 && self.remaining() >= size {
             unsafe {
