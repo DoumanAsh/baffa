@@ -19,3 +19,4 @@ include = [
 
 [features]
 std = [] #Enable std trait implementation like io::Write
+alloc = [] #Enables trait implementation for dynamic buffers in alloc crate

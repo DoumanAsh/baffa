@@ -11,6 +11,8 @@ use core::{mem, cmp, ops};
 
 pub mod stack;
 pub mod iter;
+#[cfg(feature = "alloc")]
+mod alloc;
 
 ///Alias to static buffer.
 pub type StaticBuffer<T> = stack::Buffer<T>;
