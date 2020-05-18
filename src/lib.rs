@@ -1,4 +1,37 @@
 //! Generic byte buffer
+//!
+//! Contains interfaces for byte buffers.
+//!
+//! ## Static buffer
+//!
+//! This crate includes implementation of simple static buffer where user can specify storage at
+//! compile time.
+//! Due to lack of const generics, it is achieved by just specifying type of underlying storage.
+//! Any type can be represented as byte array, but normally it should be `Copy` types
+//!
+//! ```rust
+//! use core::mem;
+//! use baffa::{StaticBuffer, WriteBuf, WriteBufExt, ReadBufExt, ContBuf};
+//!
+//! let mut buffer = StaticBuffer::<u64>::new();
+//!
+//! assert_eq!(buffer.write_value(&u32::max_value()), 4); //WriteBufExt
+//! assert_eq!(buffer.as_read_slice().len(), 4); //ContBuf::as_read_slice() returns written bytes
+//! assert_eq!(buffer.as_write_slice().len(), 4); //ContBuf::as_write_slice() returns bytes that are yet to be written
+//!
+//! assert_eq!(buffer.write_slice(&[255u8, 255u8, 255u8, 255u8]), 4); //WriteBuf
+//! assert_eq!(buffer.as_read_slice().len(), 8); //ContBuf::as_read_slice() returns written bytes
+//! assert_eq!(buffer.as_write_slice().len(), 0); //ContBuf::as_write_slice() returns bytes that are yet to be written
+//!
+//! assert_eq!(buffer.write_value(&u32::max_value()), 0); //Not enough space :(
+//!
+//! let mut num = mem::MaybeUninit::<u64>::new(1);
+//! assert_eq!(buffer.read_value(&mut num), 8); //ReadBufExt
+//! let num = unsafe {
+//!     num.assume_init()
+//! };
+//! assert_eq!(num, u64::max_value());
+//! ```
 
 #![no_std]
 #![warn(missing_docs)]
