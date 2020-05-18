@@ -32,7 +32,7 @@ pub trait Buf: ops::IndexMut<usize, Output=u8> + Sized {
     }
 
     //TODO: separate unsafe trait? Technically need to beware of IndexMut::index_mut returning the
-    //same address
+    //same address in case stacked borrows become a thing
     #[inline]
     ///Returns mutable iterator over elements inside the buffer.
     fn iter_mut(&mut self) -> iter::IterMut<'_, Self> {
@@ -40,7 +40,7 @@ pub trait Buf: ops::IndexMut<usize, Output=u8> + Sized {
     }
 }
 
-///Describes buffer that allows to extend capacity
+///Describes buffer that allows to change its capacity
 pub trait DynBuf {
     ///Reserves additional space, enough to at least fit `size`.
     ///
@@ -51,6 +51,19 @@ pub trait DynBuf {
     ///If `size` is bigger than `capacity` should behave as if `size` is equal (i.e. clear whole
     ///memory).
     fn shrink(&mut self, size: usize);
+}
+
+///Describes buffer that uses single contiguous memory block
+///
+///Meaning buffer can be accessed by single slice.
+pub trait ContBuf {
+    ///Returns slice of bytes that can be read.
+    fn as_read_slice(&self) -> &[u8];
+    ///Returns mutable slice of bytes that can be read.
+    fn as_read_slice_mut(&mut self) -> &mut [u8];
+
+    ///Returns slice of bytes that can be written (i.e. not written yet).
+    fn as_write_slice(&mut self) -> &mut [mem::MaybeUninit<u8>];
 }
 
 ///Describes read-able buffer

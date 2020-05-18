@@ -1,12 +1,23 @@
 //! Stack based buffer
 
 use core::{cmp, fmt, slice, mem, ptr, ops};
-use crate::{Buf, ReadBuf, WriteBuf};
+use crate::{Buf, ContBuf, ReadBuf, WriteBuf};
 
 ///Static buffer to raw bytes
 ///
 ///The size of the storage must be known at compile time, therefore it is suitable only for
-///non-dynamic storages
+///non-dynamic storages.
+///
+///While write semantics are pretty obvious, read behaviour is more complicated due to it being a
+///static buffer.
+///
+///When performing `ReadBuf::read` memory is always reading from the beginning.
+///So as with any other implementation read leads to consumption.
+///But as this buffer is single chunk of static memory, such operation will require to shift
+///already written bytes to the beginning (meaning each `ReadBuf::consume` involves a `memmove`
+///unless consumed `len` is not equal to current `len`)
+///
+///In general it would be more effective to access memory as slice and then consume it, if needed.
 pub struct Buffer<T: Sized> {
     inner: mem::MaybeUninit<T>,
     cursor: usize, //number of bytes written
@@ -33,7 +44,8 @@ impl<S: Sized> Buffer<S> {
     #[inline]
     ///Creates new instance from parts.
     ///
-    ///`cursor` - elements before it must be written before.
+    ///`cursor` - number of elements written. It is user responsibility to make sure it is not over
+    ///actual capacity
     pub const unsafe fn from_parts(inner: mem::MaybeUninit<S>, cursor: usize) -> Self {
         Self {
             inner,
@@ -172,7 +184,50 @@ impl<S: Sized> WriteBuf for Buffer<S> {
         ptr::copy_nonoverlapping(ptr, self.as_ptr().offset(self.cursor as isize) as *mut u8, size);
         self.advance(size);
     }
+}
 
+impl<S: Sized> ReadBuf for Buffer<S> {
+    unsafe fn consume(&mut self, step: usize) {
+        debug_assert!(step <= self.cursor);
+
+        if step == 0 {
+            return
+        }
+
+        let remaining = self.cursor.saturating_sub(step);
+
+        if remaining != 0 {
+            ptr::copy(self.as_ptr().offset(step as isize), self.as_ptr() as *mut u8, remaining);
+        }
+
+        self.set_len(remaining)
+    }
+
+    unsafe fn read(&mut self, ptr: *mut u8, size: usize) {
+        debug_assert!(!ptr.is_null());
+
+        ptr::copy_nonoverlapping(self.as_ptr(), ptr, size);
+        self.consume(size);
+    }
+}
+
+impl<S: Sized> ContBuf for Buffer<S> {
+    #[inline(always)]
+    fn as_read_slice(&self) -> &[u8] {
+        self.as_slice()
+    }
+
+    #[inline(always)]
+    fn as_read_slice_mut(&mut self) -> &mut [u8] {
+        self.as_mut_slice()
+    }
+
+    #[inline(always)]
+    fn as_write_slice(&mut self) -> &mut [mem::MaybeUninit<u8>] {
+        unsafe {
+            slice::from_raw_parts_mut(self.as_ptr().offset(self.cursor as isize) as *mut mem::MaybeUninit<u8>, Self::capacity() - self.cursor)
+        }
+    }
 }
 
 #[cfg(feature = "std")]

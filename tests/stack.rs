@@ -1,4 +1,4 @@
-use baffa::{WriteBuf, WriteBufExt, StaticBuffer, ReadBuf, ReadBufExt};
+use baffa::{WriteBuf, WriteBufExt, StaticBuffer, ReadBuf, ReadBufExt, ContBuf};
 use core::{mem, slice};
 
 #[test]
@@ -10,18 +10,50 @@ fn test_stack_buffer() {
     };
 
     let mut buffer = StaticBuffer::<u64>::new();
+
+    assert_eq!(buffer.as_read_slice().len(), 0);
+    assert_eq!(buffer.as_write_slice().len(), 8);
+
     assert_eq!(buffer.write_slice(bytes), 8);
+    assert_eq!(buffer.as_write_slice().len(), 0);
     assert_eq!(buffer.as_slice(), bytes);
+    assert_eq!(buffer.as_read_slice(), bytes);
     assert_eq!(buffer.write_slice(bytes), 0);
     assert_eq!(buffer.as_slice(), bytes);
-    buffer.truncate(0);
+    assert_eq!(buffer.as_read_slice(), bytes);
+
+    let mut res = mem::MaybeUninit::<u64>::new(0);
+    assert_eq!(buffer.read_value(&mut res), 8);
+    assert_eq!(unsafe { res.assume_init() }, num);
+
+    unsafe {
+        buffer.set_len(4);
+    }
+
+    assert_eq!(buffer.write_value(&252u32), 4);
+
+    let mut res = mem::MaybeUninit::<u32>::new(0);
+    assert_eq!(buffer.read_value(&mut res), 4);
+    assert_eq!(unsafe { res.assume_init() }, u32::max_value());
+
+    let mut res = mem::MaybeUninit::<u32>::new(0);
+    assert_eq!(buffer.read_value(&mut res), 4);
+    assert_eq!(unsafe { res.assume_init() }, 252);
+
+    let mut res = mem::MaybeUninit::<u32>::new(0);
+    assert_eq!(buffer.read_value(&mut res), 0);
+    assert_eq!(unsafe { res.assume_init() }, 0);
+
+    assert_eq!(buffer.as_write_slice().len(), 8);
     assert_eq!(buffer.write_value(&u32::max_value()), 4);
     assert_eq!(buffer.len(), 4);
+    assert_eq!(buffer.as_write_slice().len(), 4);
     for idx in 0..4 {
         assert_eq!(buffer[idx], 255);
     }
     assert_eq!(buffer.write_value(&u32::max_value()), 4);
     assert_eq!(buffer.len(), 8);
+    assert_eq!(buffer.as_write_slice().len(), 0);
     for idx in 0..8 {
         assert_eq!(buffer[idx], 255);
     }
