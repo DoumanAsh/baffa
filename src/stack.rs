@@ -11,7 +11,7 @@ use crate::{Buf, ContBuf, ReadBuf, WriteBuf};
 ///While write semantics are pretty obvious, read behaviour is more complicated due to it being a
 ///static buffer.
 ///
-///When performing `ReadBuf::read` memory is always reading from the beginning.
+///When performing `ReadBuf::read` memory is always being read from the beginning.
 ///So as with any other implementation read leads to consumption.
 ///But as this buffer is single chunk of static memory, such operation will require to shift
 ///already written bytes to the beginning (meaning each `ReadBuf::consume` involves a `memmove`
@@ -245,8 +245,9 @@ impl<S: Sized> std::io::Write for Buffer<S> {
 
 ///Circular version of `Buffer`
 ///
-///Because `Buffer` becomes circular, it always has remaining bytes to write.
+///Because `Buffer` is circular, it always has remaining bytes to write.
 ///But care must be taken because without consuming already written bytes, it is easy to over-write
+///as ring buffer always has capacity.
 pub struct Ring<T: Sized> {
     buffer: Buffer<T>,
     read: usize
